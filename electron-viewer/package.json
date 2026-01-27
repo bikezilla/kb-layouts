@@ -1,0 +1,12 @@
+{
+  "name": "kb-layout-viewer",
+  "version": "1.0.0",
+  "description": "Keyboard layout viewer for Elora and Corne",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^28.0.0"
+  }
+}
