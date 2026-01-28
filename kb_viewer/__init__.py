@@ -1,1 +1,0 @@
-"""Keyboard Layout TUI Viewer."""
