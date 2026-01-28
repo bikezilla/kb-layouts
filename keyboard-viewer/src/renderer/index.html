@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Keyboard Layout Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #1a1a2e;
+      color: #fff;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 15px 20px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 12px;
+      margin-bottom: 20px;
+    }
+    .kb-select { display: flex; gap: 8px; }
+    .layer-select { display: flex; gap: 8px; }
+    .kb-btn {
+      padding: 12px 28px;
+      border: none;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.1);
+      color: #ccc;
+      cursor: pointer;
+      font-size: 1.1rem;
+    }
+    .kb-btn.active {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: #fff;
+    }
+    .layer-btn {
+      padding: 8px 14px;
+      border: none;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.1);
+      color: #ccc;
+      cursor: pointer;
+      font-size: 0.95rem;
+    }
+    .layer-btn.active {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: #fff;
+    }
+    #keyboard-area {
+      background: rgba(0,0,0,0.3);
+      border-radius: 16px;
+      padding: 40px;
+      min-height: 500px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .keyboard-wrapper {
+      display: flex;
+      gap: 80px;
+    }
+    .half {
+      position: relative;
+    }
+    .half.left { }
+    .half.right { }
+    .key {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: linear-gradient(180deg, #4a4a5a, #2d2d3d);
+      border: 1px solid #222;
+      border-radius: 6px;
+      box-shadow: 0 4px 0 #1a1a2a, 0 4px 8px rgba(0,0,0,0.5);
+      cursor: pointer;
+      font-size: 15px;
+      color: #ddd;
+    }
+    .key:hover { transform: translateY(2px); box-shadow: 0 2px 0 #1a1a2a; }
+    .key.mod { background: linear-gradient(180deg, #4a5a6a, #2d3d4d); }
+    .key.layer { background: linear-gradient(180deg, #5a4a6a, #3d2d4d); }
+    .key.macro { background: linear-gradient(180deg, #6a5a4a, #4d3d2d); }
+    .key .hold { font-size: 11px; color: #888; margin-top: 2px; }
+    .key.home-row { border-bottom: 2px solid rgba(255,255,255,0.3); }
+    #info {
+      margin-top: 20px;
+      padding: 15px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 8px;
+    }
+    .error { color: #f66; text-align: center; padding: 40px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="kb-select">
+      <button id="btn-elora" class="kb-btn active">Elora</button>
+      <button id="btn-corne" class="kb-btn">Corne V4</button>
+    </div>
+    <div id="layer-btns" class="layer-select"></div>
+  </header>
+  <div id="keyboard-area"></div>
+  <div id="info">Hover over a key to see details</div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    // Elora physical layout - left: rows 0-5, right: rows 6-11
+    // Flat horizontal rows, no stagger
+    // Left thumb row 4: c:0=Shift, c:1=Bksp, c:2=Del, c:3=M1, c:5=Tab (c:4=empty)
+    // Right thumb row 10: c:0=Shift, c:1=Space, c:2=M0, c:3=CapsWd, c:5=Enter (c:4=empty)
+    const ELORA = {
+      left: [
+        // Number row (c:6=outer to c:1=inner)
+        {r:0,c:6,x:0,y:0},{r:0,c:5,x:1,y:0},{r:0,c:4,x:2,y:0},{r:0,c:3,x:3,y:0},{r:0,c:2,x:4,y:0},{r:0,c:1,x:5,y:0},
+        // QWERT row
+        {r:1,c:6,x:0,y:1},{r:1,c:5,x:1,y:1},{r:1,c:4,x:2,y:1},{r:1,c:3,x:3,y:1},{r:1,c:2,x:4,y:1},{r:1,c:1,x:5,y:1},
+        // Home row
+        {r:2,c:6,x:0,y:2},{r:2,c:5,x:1,y:2,hr:1},{r:2,c:4,x:2,y:2,hr:1},{r:2,c:3,x:3,y:2,hr:1},{r:2,c:2,x:4,y:2,hr:1},{r:2,c:1,x:5,y:2},
+        // Bottom row (Esc Z X C V B)
+        {r:3,c:6,x:0,y:3},{r:3,c:5,x:1,y:3},{r:3,c:4,x:2,y:3},{r:3,c:3,x:3,y:3},{r:3,c:2,x:4,y:3},{r:3,c:1,x:5,y:3},
+        // Inner column: M1 and M2 (to the right of B, above thumb)
+        {r:4,c:3,x:6,y:3},  // M1
+        {r:3,c:0,x:7,y:3},  // M2 (next to M1)
+        // Thumb row left-to-right: unassigned, del, bksp, tab, shift
+        {r:4,c:4,x:3,y:4},  // unassigned (KC_NO)
+        {r:4,c:2,x:4,y:4},  // del (LT3)
+        {r:4,c:1,x:5,y:4},  // bksp (LT1)
+        {r:4,c:5,x:6,y:4},  // tab (LT2)
+        {r:4,c:0,x:7,y:4},  // shift
+      ],
+      right: [
+        // Number row (c:1=inner to c:6=outer)
+        {r:6,c:1,x:1,y:0},{r:6,c:2,x:2,y:0},{r:6,c:3,x:3,y:0},{r:6,c:4,x:4,y:0},{r:6,c:5,x:5,y:0},{r:6,c:6,x:6,y:0},
+        // YUIOP row
+        {r:7,c:1,x:1,y:1},{r:7,c:2,x:2,y:1},{r:7,c:3,x:3,y:1},{r:7,c:4,x:4,y:1},{r:7,c:5,x:5,y:1},{r:7,c:6,x:6,y:1},
+        // Home row
+        {r:8,c:1,x:1,y:2},{r:8,c:2,x:2,y:2,hr:1},{r:8,c:3,x:3,y:2,hr:1},{r:8,c:4,x:4,y:2,hr:1},{r:8,c:5,x:5,y:2,hr:1},{r:8,c:6,x:6,y:2},
+        // Bottom row (N M , . / \)
+        {r:9,c:1,x:1,y:3},{r:9,c:2,x:2,y:3},{r:9,c:3,x:3,y:3},{r:9,c:4,x:4,y:3},{r:9,c:5,x:5,y:3},{r:9,c:6,x:6,y:3},
+        // Inner column: mirrored (to the left of N, above thumb)
+        {r:10,c:3,x:0,y:3},  // capswd
+        {r:9,c:0,x:-1,y:3},  // Caps (next to capswd)
+        // Thumb row mirrored: shift, enter, space, M0, unassigned (left-to-right)
+        {r:10,c:0,x:-1,y:4},  // shift
+        {r:10,c:5,x:0,y:4},   // enter (LT2)
+        {r:10,c:1,x:1,y:4},   // space (LT3)
+        {r:10,c:2,x:2,y:4},   // M0
+        {r:10,c:4,x:3,y:4},   // unassigned (KC_NO)
+      ]
+    };
+
+    // Corne physical layout - flat rows
+    const CORNE = {
+      left: [
+        // Top row
+        {r:0,c:0,x:0,y:0},{r:0,c:1,x:1,y:0},{r:0,c:2,x:2,y:0},{r:0,c:3,x:3,y:0},{r:0,c:4,x:4,y:0},{r:0,c:5,x:5,y:0},
+        // Home row
+        {r:1,c:0,x:0,y:1},{r:1,c:1,x:1,y:1,hr:1},{r:1,c:2,x:2,y:1,hr:1},{r:1,c:3,x:3,y:1,hr:1},{r:1,c:4,x:4,y:1,hr:1},{r:1,c:5,x:5,y:1},
+        // Bottom row
+        {r:2,c:0,x:0,y:2},{r:2,c:1,x:1,y:2},{r:2,c:2,x:2,y:2},{r:2,c:3,x:3,y:2},{r:2,c:4,x:4,y:2},{r:2,c:5,x:5,y:2},
+        // Thumb row - c:3, c:4, c:5
+        {r:3,c:3,x:3,y:3},{r:3,c:4,x:4,y:3},{r:3,c:5,x:5,y:3},
+      ],
+      right: [
+        // Top row
+        {r:4,c:5,x:0,y:0},{r:4,c:4,x:1,y:0},{r:4,c:3,x:2,y:0},{r:4,c:2,x:3,y:0},{r:4,c:1,x:4,y:0},{r:4,c:0,x:5,y:0},
+        // Home row
+        {r:5,c:5,x:0,y:1},{r:5,c:4,x:1,y:1,hr:1},{r:5,c:3,x:2,y:1,hr:1},{r:5,c:2,x:3,y:1,hr:1},{r:5,c:1,x:4,y:1,hr:1},{r:5,c:0,x:5,y:1},
+        // Bottom row
+        {r:6,c:5,x:0,y:2},{r:6,c:4,x:1,y:2},{r:6,c:3,x:2,y:2},{r:6,c:2,x:3,y:2},{r:6,c:1,x:4,y:2},{r:6,c:0,x:5,y:2},
+        // Thumb row - c:5, c:4, c:3 (mirrored)
+        {r:7,c:5,x:0,y:3},{r:7,c:4,x:1,y:3},{r:7,c:3,x:2,y:3},
+      ]
+    };
+
+    const KEYCODES = {
+      'KC_A':'A','KC_B':'B','KC_C':'C','KC_D':'D','KC_E':'E','KC_F':'F','KC_G':'G','KC_H':'H',
+      'KC_I':'I','KC_J':'J','KC_K':'K','KC_L':'L','KC_M':'M','KC_N':'N','KC_O':'O','KC_P':'P',
+      'KC_Q':'Q','KC_R':'R','KC_S':'S','KC_T':'T','KC_U':'U','KC_V':'V','KC_W':'W','KC_X':'X',
+      'KC_Y':'Y','KC_Z':'Z','KC_1':'1','KC_2':'2','KC_3':'3','KC_4':'4','KC_5':'5','KC_6':'6',
+      'KC_7':'7','KC_8':'8','KC_9':'9','KC_0':'0','KC_ENTER':'Ent','KC_ESCAPE':'Esc','KC_BSPACE':'Bksp',
+      'KC_TAB':'Tab','KC_SPACE':'Spc','KC_DELETE':'Del','KC_CAPSLOCK':'Caps','KC_MINUS':'-',
+      'KC_EQUAL':'=','KC_LBRACKET':'[','KC_RBRACKET':']','KC_BSLASH':'\\','KC_SCOLON':';',
+      'KC_QUOTE':"'",'KC_GRAVE':'`','KC_COMMA':',','KC_DOT':'.','KC_SLASH':'/','KC_HOME':'Home',
+      'KC_END':'End','KC_PGUP':'PgU','KC_PGDOWN':'PgD','KC_LEFT':'←','KC_RIGHT':'→','KC_UP':'↑',
+      'KC_DOWN':'↓','KC_TRNS':'▽','KC_NO':'','KC_LSHIFT':'Shft','KC_RSHIFT':'Shft',
+      'KC_F1':'F1','KC_F2':'F2','KC_F3':'F3','KC_F4':'F4','KC_F5':'F5','KC_F6':'F6',
+      'KC_F7':'F7','KC_F8':'F8','KC_F9':'F9','KC_F10':'F10','KC_F11':'F11','KC_F12':'F12',
+      'KC_MUTE':'Mute','KC_VOLU':'V+','KC_VOLD':'V-','KC_KP_EQUAL':'=','KC_KP_PLUS':'+',
+      'KC_KP_MINUS':'-','KC_KP_ASTERISK':'*','KC_KP_SLASH':'/','KC_KP_DOT':'.','KC_KP_ENTER':'KEnt',
+      'KC_KP_0':'0','KC_KP_1':'1','KC_KP_2':'2','KC_KP_3':'3','KC_KP_4':'4','KC_KP_5':'5',
+      'KC_KP_6':'6','KC_KP_7':'7','KC_KP_8':'8','KC_KP_9':'9',
+      'QK_CAPS_WORD_TOGGLE':'CpWd','RM_TOGG':'RGB','RM_NEXT':'R+','RM_PREV':'R-',
+    };
+
+    const SHIFT = {'KC_1':'!','KC_2':'@','KC_3':'#','KC_4':'$','KC_5':'%','KC_6':'^','KC_7':'&',
+      'KC_8':'*','KC_9':'(','KC_0':')','KC_MINUS':'_','KC_EQUAL':'+','KC_LBRACKET':'{',
+      'KC_RBRACKET':'}','KC_BSLASH':'|','KC_SCOLON':':','KC_QUOTE':'"','KC_GRAVE':'~',
+      'KC_COMMA':'<','KC_DOT':'>','KC_SLASH':'?'};
+
+    function parse(kc) {
+      if (kc === -1 || kc === null || typeof kc === 'number') return {label:'',type:'hidden'};
+
+      let m = kc.match(/^M(\d+)$/);
+      if (m) return {label:'M'+m[1], type:'macro'};
+
+      m = kc.match(/^LT(\d+)\((.+)\)$/);
+      if (m) { let p=parse(m[2]); return {label:p.label,hold:'L'+m[1],type:'layer'}; }
+
+      m = kc.match(/^(L|R)?(CTL|SFT|ALT|GUI)_T\((.+)\)$/);
+      if (m) {
+        let p=parse(m[3]);
+        let mod={'CTL':'Ctrl','SFT':'Shft','ALT':'Alt','GUI':'Cmd'}[m[2]];
+        return {label:p.label,hold:mod,type:'mod'};
+      }
+
+      m = kc.match(/^[LR]?SFT\((.+)\)$/);
+      if (m) return {label:SHIFT[m[1]]||'⇧',type:'normal'};
+
+      m = kc.match(/^LGUI\((.+)\)$/);
+      if (m) { let p=parse(m[1]); return {label:'⌘'+p.label,type:'mod'}; }
+
+      m = kc.match(/^DF\((\d+)\)$/);
+      if (m) return {label:'DF'+m[1],type:'layer'};
+
+      if (KEYCODES[kc] !== undefined) {
+        let t = kc==='KC_TRNS'?'trans':kc==='KC_NO'?'empty':'normal';
+        return {label:KEYCODES[kc],type:t};
+      }
+
+      return {label:kc.replace('KC_',''),type:'normal'};
+    }
+
+    let layouts = {};
+    let kb = 'elora';
+    let layer = 0;
+    const SZ = 64;
+
+    async function init() {
+      try {
+        layouts = await ipcRenderer.invoke('load-layouts');
+      } catch(e) {
+        document.getElementById('keyboard-area').innerHTML = '<div class="error">Load error: '+e+'</div>';
+        return;
+      }
+
+      if (!layouts.elora && !layouts.corne) {
+        document.getElementById('keyboard-area').innerHTML = '<div class="error">No layout files found</div>';
+        return;
+      }
+
+      document.getElementById('btn-elora').onclick = () => { kb='elora'; layer=0; updateUI(); render(); };
+      document.getElementById('btn-corne').onclick = () => { kb='corne'; layer=0; updateUI(); render(); };
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'e') { kb='elora'; layer=0; updateUI(); render(); }
+        if (e.key === 'c') { kb='corne'; layer=0; updateUI(); render(); }
+        let data = kb==='elora' ? layouts.elora : layouts.corne;
+        if (data && e.key >= '0' && e.key <= '9') {
+          let l = parseInt(e.key);
+          if (l < data.layout.length) { layer=l; updateUI(); render(); }
+        }
+      });
+
+      updateUI();
+      render();
+    }
+
+    function updateUI() {
+      document.getElementById('btn-elora').className = 'kb-btn' + (kb==='elora'?' active':'');
+      document.getElementById('btn-corne').className = 'kb-btn' + (kb==='corne'?' active':'');
+
+      let container = document.getElementById('layer-btns');
+      let data = kb==='elora' ? layouts.elora : layouts.corne;
+      container.innerHTML = '';
+      if (data) {
+        let names = ['Base','Sym','Num','Fn','Num2','Fn2','RGB','Extra'];
+        for (let i=0; i<data.layout.length; i++) {
+          let btn = document.createElement('button');
+          btn.className = 'layer-btn' + (i===layer?' active':'');
+          btn.textContent = i+': '+(names[i]||'L'+i);
+          btn.onclick = () => { layer=i; updateUI(); render(); };
+          container.appendChild(btn);
+        }
+      }
+    }
+
+    function render() {
+      let area = document.getElementById('keyboard-area');
+      let data = kb==='elora' ? layouts.elora : layouts.corne;
+      let phys = kb==='elora' ? ELORA : CORNE;
+
+      if (!data) { area.innerHTML = '<div class="error">No data for '+kb+'</div>'; return; }
+
+      let lyr = data.layout[layer];
+      if (!lyr) { area.innerHTML = '<div class="error">No layer '+layer+'</div>'; return; }
+
+      function bounds(keys) {
+        let minX=999,maxX=-999,minY=999,maxY=-999;
+        keys.forEach(k => {
+          if (k.x<minX) minX=k.x;
+          if (k.x+1>maxX) maxX=k.x+1;
+          if (k.y<minY) minY=k.y;
+          if (k.y+1>maxY) maxY=k.y+1;
+        });
+        return {minX,maxX,minY,maxY};
+      }
+
+      function makeHalf(keys, cls) {
+        let b = bounds(keys);
+        let div = document.createElement('div');
+        div.className = 'half '+cls;
+        div.style.width = ((b.maxX-b.minX)*SZ)+'px';
+        div.style.height = ((b.maxY-b.minY)*SZ)+'px';
+
+        keys.forEach(k => {
+          let code = lyr[k.r] && lyr[k.r][k.c];
+          if (code===undefined || code===null) return;
+
+          let info = parse(code);
+          if (info.type==='hidden') return;
+
+          let key = document.createElement('div');
+          key.className = 'key';
+          if (info.type==='mod') key.classList.add('mod');
+          if (info.type==='layer') key.classList.add('layer');
+          if (info.type==='macro') key.classList.add('macro');
+          if (k.hr) key.classList.add('home-row');
+          if (info.type==='trans') key.style.opacity='0.5';
+          if (info.type==='empty') key.style.opacity='0.3';
+
+          key.style.left = ((k.x-b.minX)*SZ)+'px';
+          key.style.top = ((k.y-b.minY)*SZ)+'px';
+          key.style.width = (SZ-4)+'px';
+          key.style.height = (SZ-4)+'px';
+
+          key.innerHTML = '<span>'+info.label+'</span>' + (info.hold ? '<span class="hold">'+info.hold+'</span>' : '');
+
+          key.onmouseenter = () => {
+            document.getElementById('info').innerHTML =
+              '<b>'+info.label+'</b>' + (info.hold?' (hold: '+info.hold+')':'') +
+              '<br><small style="color:#888">'+code+'</small>';
+          };
+          key.onmouseleave = () => {
+            document.getElementById('info').textContent = 'Hover over a key to see details';
+          };
+
+          div.appendChild(key);
+        });
+
+        return div;
+      }
+
+      let wrapper = document.createElement('div');
+      wrapper.className = 'keyboard-wrapper';
+      wrapper.appendChild(makeHalf(phys.left, 'left'));
+      wrapper.appendChild(makeHalf(phys.right, 'right'));
+
+      area.innerHTML = '';
+      area.appendChild(wrapper);
+    }
+
+    init();
+  </script>
+</body>
+</html>
